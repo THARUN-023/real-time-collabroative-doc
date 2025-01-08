@@ -1,0 +1,53 @@
+// server.js (Node.js with Socket.IO)
+
+const express = require('express');
+const app = express();
+const server = require('http').createServer(app);
+const io = require('socket.io')(server);
+const mongoose = require('mongoose');
+
+// Mongoose connection
+mongoose.connect('mongodb://localhost:27017/collaborative_editor', { 
+    useNewUrlParser: true, 
+    useUnifiedTopology: true 
+});
+
+const Document = mongoose.model('Document', {
+    _id: { type: String, required: true },
+    text: { type: String, default: '' }
+});
+
+app.use(express.json());
+
+io.on('connection', (socket) => {
+    socket.on('get-document', async (documentId) => {
+        const document = await findOrCreateDocument(documentId);
+        socket.join(documentId);
+        socket.emit('load-document', document.text);
+
+        socket.on('send-changes', (delta) => {
+            socket.broadcast.to(documentId).emit('receive-changes', delta);
+        });
+
+        socket.on('save-document', async (data) => {
+            const document = await findOrCreateDocument(documentId);
+            document.text = data;
+            await document.save();
+        });
+
+        socket.on('disconnect', () => {
+            socket.leave(documentId);
+        });
+    });
+});
+
+async function findOrCreateDocument(id) {
+    if (id === null) return;
+
+    const document = await Document.findById(id);
+    if (document) return document;
+    return await Document.create({ _id: id });
+}
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
