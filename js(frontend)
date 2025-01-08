@@ -1,0 +1,62 @@
+// DocumentEditor.js
+
+import React, { useState, useEffect, useRef } from 'react';
+import io from 'socket.io-client';
+import { v4 as uuidv4 } from 'uuid'; 
+
+const socket = io('http://localhost:3000');
+
+function DocumentEditor() {
+    const [text, setText] = useState('');
+    const [count, setCount] = useState(0);
+    const [socketId, setSocketId] = useState(null);
+    const [documentId, setDocumentId] = useState(null); 
+    const latestDelta = useRef(null);
+
+    useEffect(() => {
+        const id = uuidv4();
+        setDocumentId(id);
+
+        socket.on('connect', () => {
+            setSocketId(socket.id);
+            socket.emit('get-document', id);
+        });
+
+        socket.on('load-document', (documentText) => {
+            setText(documentText);
+        });
+
+        socket.on('receive-changes', (delta) => {
+            latestDelta.current = delta;
+            setTimeout(() => {
+                if (latestDelta.current === delta) {
+                    setText((prevText) => {
+                        // Apply delta to the text using a diff library (e.g., js-diff)
+                        return applyDelta(prevText, delta); 
+                    });
+                }
+            }, 200); // Debounce to avoid unnecessary re-renders
+        });
+
+        return () => {
+            socket.disconnect();
+        };
+    }, []);
+
+    const handleChange = (event) => {
+        const delta = calculateDelta(text, event.target.value);
+        setText(event.target.value);
+        socket.emit('send-changes', delta);
+        socket.emit('save-document', text); 
+    };
+
+    // ... (functions for calculating delta, applying delta, etc.)
+
+    return (
+        <div>
+            <textarea value={text} onChange={handleChange} />
+        </div>
+    );
+}
+
+export default DocumentEditor;
